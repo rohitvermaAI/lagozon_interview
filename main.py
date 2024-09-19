@@ -142,28 +142,50 @@ async def submit(request: Request, quiz_name: str = Form(...), name: str = Form(
     return HTMLResponse(f"<h1>Thank you, {name}!</h1><p>Your score: {score}/{len(questions)}</p>")
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin(request: Request, authorized: bool = Depends(authenticate), view: str = "select-quiz", quiz_name: str = Query(None)):
+async def admin(
+    request: Request, 
+    authorized: bool = Depends(authenticate), 
+    view: str = "select-quiz", 
+    quiz_name: str = Query(None), 
+    qualifying_score: int = Query(None)
+):
     quizzes = []
     quiz_link = None
+    shortlisted_csv = False
 
-    if view == "select-quiz":
-        # Read quizzes from Azure Blob Storage
-        blob_list = container_client.list_blobs(name_starts_with=QUIZZES_DIRECTORY)
-        quizzes = [blob.name.split('/')[-1].replace('.json', '') for blob in blob_list if blob.name.endswith('.json')]
+    if view == 'results' and qualifying_score is not None:
+        # Read all results from Azure Blob Storage
+        blob_client = container_client.get_blob_client(BLOB_NAME)
+        blob_data = blob_client.download_blob().readall()
+        existing_csv = io.StringIO(blob_data.decode('utf-8'))
+        existing_csv_reader = csv.DictReader(existing_csv)
+        existing_results = list(existing_csv_reader)
 
-        # If a quiz is selected, generate the link
-        if quiz_name:
-            query_params = urlencode({"quiz_name": quiz_name})
-            quiz_link = urljoin(str(request.url_for('welcome')), f"?{query_params}")
+        # Filter results based on qualifying score
+        shortlisted_candidates = [result for result in existing_results if int(result['score']) >= qualifying_score]
 
+        # Generate a new CSV for shortlisted candidates
+        shortlisted_output = io.StringIO()
+        writer = csv.DictWriter(shortlisted_output, fieldnames=["name", "email", "Role", "score"])
+        writer.writeheader()
+        writer.writerows(shortlisted_candidates)
+
+        # Upload the shortlisted candidates CSV to Azure Blob Storage
+        blob_client = container_client.get_blob_client("shortlisted_candidates.csv")
+        blob_client.upload_blob(shortlisted_output.getvalue(), overwrite=True)
+        
+        shortlisted_csv = True
+
+    # Render the admin template with the filtered results
     return templates.TemplateResponse("admin.html", {
         "request": request,
         "view": view,
         "quiz_name": quiz_name,
         "quiz_link": quiz_link,
         "quizzes": quizzes,
+        "shortlisted_csv": shortlisted_csv,
+        "qualifying_score": qualifying_score  # Pass the score back to the template
     })
-
 @app.post("/add-question")
 async def add_question(
     request: Request,
@@ -270,3 +292,37 @@ async def load_quiz(quiz_name: str = Query(...)):
             return JSONResponse(content={"questions": []}, status_code=404)
     except ValueError as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
+@app.get("/download-shortlisted-results")
+async def download_shortlisted_results():
+    blob_client = container_client.get_blob_client("shortlisted_candidates.csv")
+    blob_data = blob_client.download_blob()
+    csv_content = blob_data.readall()
+
+    return HTMLResponse(content=csv_content, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=shortlisted_candidates.csv"})
+@app.get("/filter-candidates")
+async def filter_candidates(qualifying_score: int):
+    # Read all results from Azure Blob Storage
+    blob_client = container_client.get_blob_client(BLOB_NAME)
+    blob_data = blob_client.download_blob().readall()
+    existing_csv = io.StringIO(blob_data.decode('utf-8'))
+    existing_csv_reader = csv.DictReader(existing_csv)
+    existing_results = list(existing_csv_reader)
+
+    # Filter results based on the qualifying score
+    shortlisted_candidates = [result for result in existing_results if int(result['score']) >= qualifying_score]
+
+    # Generate a new CSV for shortlisted candidates
+    shortlisted_output = io.StringIO()
+    writer = csv.DictWriter(shortlisted_output, fieldnames=["name", "email", "Role", "score"])
+    writer.writeheader()
+    writer.writerows(shortlisted_candidates)
+
+    # Upload the shortlisted candidates CSV to Azure Blob Storage
+    shortlisted_blob_name = "shortlisted_candidates.csv"
+    blob_client = container_client.get_blob_client(shortlisted_blob_name)
+    blob_client.upload_blob(shortlisted_output.getvalue(), overwrite=True)
+
+    # Generate URL for the shortlisted candidates CSV file
+    shortlisted_csv_url = f"/download-shortlisted-results"
+
+    return {"shortlisted_csv_url": shortlisted_csv_url}

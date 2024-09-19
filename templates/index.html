@@ -5,7 +5,7 @@
 <div class="container">
     <h1>Welcome {{ name }}</h1>
     <p>Email: {{ email }}</p>
-    <h1>Quiz</h1>
+    <h1>Questions</h1>
     <div id="timer" style="font-weight: bold;"></div>
     <form method="POST" action="/submit">
         <input type="hidden" name="quiz_name" value="{{ quiz_name }}">
@@ -25,6 +25,24 @@
     </form></div>
 
 <script>
+    function startTimer(duration, display) {
+        let timer = duration, minutes, seconds;
+        const interval = setInterval(function () {
+            minutes = parseInt(timer / 60, 10);
+            seconds = parseInt(timer % 60, 10);
+
+            minutes = minutes < 10 ? "0" + minutes : minutes;
+            seconds = seconds < 10 ? "0" + seconds : seconds;
+
+            display.textContent = minutes + ":" + seconds;
+
+            if (--timer < 0) {
+                clearInterval(interval);
+                document.querySelector('form').submit();  // Auto-submit when time is up
+            }
+        }, 1000);
+    }
+
     async function loadQuiz() {
         const queryParams = new URLSearchParams(window.location.search);
         const quizName = queryParams.get("quiz_name");
@@ -60,6 +78,10 @@
     }
 
     window.onload = function () {
+        const time = 1800;  // 1 minute in seconds
+        const display = document.querySelector('#timer');  // The timer element
+        startTimer(time, display);  // Start the timer
+
         loadQuiz();
     };
 </script>
