@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from urllib.parse import urlencode, urljoin
-
+from typing import Optional
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from azure.storage.blob import BlobServiceClient
@@ -147,10 +147,21 @@ async def admin(
     authorized: bool = Depends(authenticate), 
     view: str = "select-quiz", 
     quiz_name: str = Query(None), 
-    qualifying_score: int = Query(None)
+    qualifying_score: Optional[int] = Query(None)
 ):
     quizzes = []
     quiz_link = None
+
+    if view == "select-quiz":
+        # Read quizzes from Azure Blob Storage
+        blob_list = container_client.list_blobs(name_starts_with=QUIZZES_DIRECTORY)
+        quizzes = [blob.name.split('/')[-1].replace('.json', '') for blob in blob_list if blob.name.endswith('.json')]
+
+        # If a quiz is selected, generate the link
+        if quiz_name:
+            query_params = urlencode({"quiz_name": quiz_name})
+            quiz_link = urljoin(str(request.url_for('welcome')), f"?{query_params}")
+    
     shortlisted_csv = False
 
     if view == 'results' and qualifying_score is not None:
@@ -184,7 +195,7 @@ async def admin(
         "quiz_link": quiz_link,
         "quizzes": quizzes,
         "shortlisted_csv": shortlisted_csv,
-        "qualifying_score": qualifying_score  # Pass the score back to the template
+        "qualifying_score": qualifying_score  # Pass the score back to the template only for the results view
     })
 @app.post("/add-question")
 async def add_question(
