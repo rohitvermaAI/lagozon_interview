@@ -139,8 +139,7 @@ async def submit(request: Request, quiz_name: str = Form(...), name: str = Form(
     except Exception as e:
         return HTMLResponse(f"<h1>Error: Failed to save results!</h1><p>{str(e)}</p>", status_code=500)
     
-    return HTMLResponse(f"<h1>Thank you, {name}!</h1><p>Your score: {score}/{len(questions)}</p>")
-
+    return templates.TemplateResponse("thankyoupage.html", {"name": name,"request":request})
 @app.get("/admin", response_class=HTMLResponse)
 async def admin(
     request: Request, 
